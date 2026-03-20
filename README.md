@@ -56,15 +56,40 @@ Default clone and config locations: **`~/.repofix/repos/`**, **`~/.repofix/confi
 
 **Requirements:** Python **3.10+**, **`git`** on your `PATH`. For Docker-based projects, Docker must be available when the stack needs it.
 
+### PyPI
+
 ```bash
 pip install repofix
+```
+
+### One-liner (curl)
+
+The script installs from PyPI (same as `pip install --user`, with a Python 3.10+ check):
+
+```bash
+curl -sSf --proto '=https' --tlsv1.2 \
+  https://raw.githubusercontent.com/sriramnarendran/RepoFix/main/scripts/install.sh | bash
+```
+
+Isolated environment with [pipx](https://pipx.pypa.io/) (pass flags after `bash -s --` when piping):
+
+```bash
+curl -sSf --proto '=https' --tlsv1.2 \
+  https://raw.githubusercontent.com/sriramnarendran/RepoFix/main/scripts/install.sh | bash -s -- --pipx
+```
+
+Pin a release:
+
+```bash
+curl -sSf --proto '=https' --tlsv1.2 \
+  https://raw.githubusercontent.com/sriramnarendran/RepoFix/main/scripts/install.sh | env REPOFIX_VERSION=0.1.0 bash
 ```
 
 **Install from source** (contributors):
 
 ```bash
-git clone https://github.com/YOUR_ORG/repofix.git
-cd repofix
+git clone https://github.com/sriramnarendran/RepoFix.git
+cd RepoFix
 pip install -e ".[dev]"
 ```
 
@@ -325,8 +350,8 @@ We welcome issues and PRs. A few norms:
 
 ## Support
 
-- **Bug reports & feature requests:** [GitHub Issues](https://github.com/YOUR_ORG/repofix/issues) *(replace with your repo URL)*  
-- **Questions & show-and-tell:** [GitHub Discussions](https://github.com/YOUR_ORG/repofix/discussions) *(optional)*
+- **Bug reports & feature requests:** [GitHub Issues](https://github.com/sriramnarendran/RepoFix/issues)  
+- **Questions & show-and-tell:** [GitHub Discussions](https://github.com/sriramnarendran/RepoFix/discussions)
 
 When reporting bugs, include: OS, Python version, RepoFix version, the **repo URL or stack**, full **`--mode debug`** output (redact secrets), and whether local LLM / cloud AI was enabled.
 

@@ -33,6 +33,11 @@ dependencies = [
     "httpx>=0.24",
 ]
 
+[project.urls]
+Homepage = "https://github.com/sriramnarendran/RepoFix"
+Repository = "https://github.com/sriramnarendran/RepoFix"
+Issues = "https://github.com/sriramnarendran/RepoFix/issues"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7",
