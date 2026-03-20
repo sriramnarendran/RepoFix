@@ -14,6 +14,7 @@ __pycache__/
 .ruff_cache/
 .pytype/
 dmypy.json
+pypi*
 
 # Testing & coverage
 .pytest_cache/

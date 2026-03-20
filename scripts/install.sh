@@ -14,6 +14,8 @@
 
 set -euo pipefail
 
+PATH_HELP_PRINTED=0
+
 usage() {
   cat <<'EOF'
 Usage: install.sh [OPTIONS]
@@ -88,14 +90,29 @@ else
   local_bin="$("${PY}" -m site --user-base 2>/dev/null)/bin"
   if [[ -d "${local_bin}" ]] && [[ ":${PATH}:" != *":${local_bin}:"* ]]; then
     echo "" >&2
-    echo "Add this directory to your PATH so \`repofix\` is found:" >&2
-    echo "  export PATH=\"${local_bin}:\${PATH}\"" >&2
-    echo "(Put that line in ~/.bashrc or ~/.zshrc.)" >&2
+    echo "Scripts were installed under: ${local_bin}" >&2
+    echo "That directory is not on your PATH in this session." >&2
+    echo "" >&2
+    echo "  Use repofix in this terminal (copy–paste):" >&2
+    echo "    export PATH=\"${local_bin}:\${PATH}\"" >&2
+    echo "" >&2
+    echo "  To make that permanent, add the same export line to ~/.bashrc or ~/.zshrc," >&2
+    echo "  or run: pipx ensurepath   (if you use pipx; then open a new terminal)." >&2
+    PATH_HELP_PRINTED=1
   fi
 fi
 
 if have_cmd repofix; then
   echo "repofix is installed. Try: repofix --help"
 else
-  echo "Install finished. Open a new shell or update PATH, then run: repofix --help"
+  user_bin="${HOME}/.local/bin"
+  if [[ "${PATH_HELP_PRINTED}" == "0" ]] && [[ -x "${user_bin}/repofix" ]] && [[ ":${PATH}:" != *":${user_bin}:"* ]]; then
+    echo "" >&2
+    echo "\`repofix\` is installed at ${user_bin}/repofix but that directory is not on PATH." >&2
+    echo "  In this terminal:" >&2
+    echo "    export PATH=\"${user_bin}:\${PATH}\"" >&2
+    echo "  Or: pipx ensurepath   # then open a new terminal" >&2
+  fi
+  echo "" >&2
+  echo "Install finished. Run the export PATH=… line above in this shell (or fix PATH in your rc file), then: repofix --help" >&2
 fi
