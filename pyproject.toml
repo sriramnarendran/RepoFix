@@ -37,6 +37,7 @@ dependencies = [
 Homepage = "https://github.com/sriramnarendran/RepoFix"
 Repository = "https://github.com/sriramnarendran/RepoFix"
 Issues = "https://github.com/sriramnarendran/RepoFix/issues"
+LLM = "https://raw.githubusercontent.com/sriramnarendran/RepoFix/main/llms.txt"
 
 [project.optional-dependencies]
 dev = [

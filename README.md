@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-alpha-orange.svg)]()
 
-[Installation](#installation) · [Quick start](#quick-start) · [Examples](#examples) · [Bring your own LLM](#bring-your-own-llm) · [CLI reference](#cli-reference) · [Contributing](#contributing)
+[Installation](#installation) · [Quick start](#quick-start) · [Examples](#examples) · [Bring your own LLM](#bring-your-own-llm) · [CLI reference](#cli-reference) · [Contributing](#contributing) · [llms.txt](https://raw.githubusercontent.com/sriramnarendran/RepoFix/main/llms.txt) (LLM / discovery summary)
 
 </div>
 

@@ -1,0 +1,29 @@
+# RepoFix
+
+> RepoFix is a Python 3.10+ CLI that takes a GitHub URL or local directory, detects the stack (Node, Python, Go, Rust, Java, Docker/Compose, and others), installs dependencies, runs the project, and retries with rule-based fixes plus optional on-device or cloud LLMs (Gemini, OpenAI, Anthropic) when errors persist. PyPI package name: `repofix`. Primary entry point: `repofix run <url-or-path>`.
+
+Summary for models and search:
+
+- License: MIT. Source and issues: GitHub repository below.
+- Requires `git` on `PATH`; Docker when the target repo needs it.
+- Defaults: clones under `~/.repofix/repos/`, config at `~/.repofix/config.toml`, optional local model under `~/.repofix/models/`.
+- Modes: `auto` (default fixes), `assist` (confirm each fix), `debug` (verbose). Process helpers: `repofix ps`, `logs`, `stop`, `start`, `restart`. Branch cache: `repofix branches`, `branch-clean`.
+- Not a hosted SaaS: it is a client-side developer tool you install locally.
+
+## Documentation
+
+- [README](https://raw.githubusercontent.com/sriramnarendran/RepoFix/main/README.md): Full installation, quick start, examples, CLI reference, bring-your-own-LLM, contributing.
+- [Repository](https://github.com/sriramnarendran/RepoFix): Source tree, releases, issue tracker.
+
+## Install & distribution
+
+- [PyPI: repofix](https://pypi.org/project/repofix/): `pip install repofix`.
+- [install.sh](https://raw.githubusercontent.com/sriramnarendran/RepoFix/main/scripts/install.sh): curl-installer; see README for `pipx` and version pinning.
+
+## Contact
+
+- [GitHub Issues](https://github.com/sriramnarendran/RepoFix/issues): Bugs, features, and support discussions.
+
+## Optional
+
+- [pyproject.toml](https://raw.githubusercontent.com/sriramnarendran/RepoFix/main/pyproject.toml): Dependencies, entry point `repofix`, classifiers, and project URLs for tooling.
