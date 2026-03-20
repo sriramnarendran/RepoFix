@@ -1,0 +1,59 @@
+# Virtual environments
+.venv/
+venv/
+env/
+.env/
+.python-version
+
+# Bytecode & caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.mypy_cache/
+.ruff_cache/
+.pytype/
+dmypy.json
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Packaging / build (hatch, setuptools, legacy)
+dist/
+build/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+wheels/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment & secrets (keep .env.example if you add one)
+.env
+.env.local
+*.pem
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors & IDEs
+.idea/
+*.swp
+*.swo
+*~
+
+# VS Code — uncomment to ignore local settings
+# .vscode/
+
+# OS-generated
+*.log
