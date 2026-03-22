@@ -1,5 +1,6 @@
 # Virtual environments
 .venv/
+.venv-binary-build/
 venv/
 env/
 .env/
@@ -29,6 +30,7 @@ coverage.xml
 
 # Packaging / build (hatch, setuptools, legacy)
 dist/
+packaging/dist/
 build/
 *.egg-info/
 *.egg

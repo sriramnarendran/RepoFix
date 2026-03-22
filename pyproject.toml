@@ -46,6 +46,9 @@ dev = [
     "build>=1",
     "twine>=5",
 ]
+binary = [
+    "pyinstaller>=6",
+]
 
 [project.scripts]
 repofix = "repofix.cli:app"

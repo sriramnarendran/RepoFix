@@ -19,6 +19,7 @@ Summary for models and search:
 
 - [PyPI: repofix](https://pypi.org/project/repofix/): `pip install repofix`.
 - [install.sh](https://raw.githubusercontent.com/sriramnarendran/RepoFix/main/scripts/install.sh): curl-installer; see README for `pipx` and version pinning.
+- Standalone executables (PyInstaller) for Linux, macOS (arm64 + Intel), and Windows are built in CI; see README “Standalone binary” and workflow `build-binaries.yml`.
 
 ## Contact
 

@@ -93,6 +93,28 @@ cd RepoFix
 pip install -e ".[dev]"
 ```
 
+### Standalone binary (no Python needed on the target machine)
+
+PyInstaller bundles this project into a single executable for **one OS and CPU at a time** (Linux, macOS, and Windows each need their own build).
+
+**CI (all three platforms):** push a version tag (e.g. `v0.1.0`) or run the [Build standalone binaries](https://github.com/sriramnarendran/RepoFix/actions/workflows/build-binaries.yml) workflow manually. Download the **Artifacts** zip for:
+
+| Artifact | Use on |
+|----------|--------|
+| `repofix-linux-x86_64` | 64-bit Linux |
+| `repofix-macos-arm64` | Apple Silicon Mac |
+| `repofix-macos-x86_64` | Intel Mac |
+| `repofix-windows-x86_64.exe` | 64-bit Windows |
+
+**Local build** (current machine only) uses a **clean venv** so unrelated packages (e.g. PyTorch) in your global Python are not pulled in:
+
+```bash
+./scripts/build_binary.sh
+# → packaging/dist/repofix   (or repofix.exe on Windows)
+```
+
+Requirements for **running** any binary are unchanged: **`git`** on `PATH`, and Docker when the repo you run needs it. Optional local LLM / cloud keys behave like the pip install.
+
 ---
 
 ## Quick start

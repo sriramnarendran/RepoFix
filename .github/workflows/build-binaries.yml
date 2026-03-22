@@ -1,0 +1,91 @@
+# PyInstaller must run on each target OS. This workflow produces one artifact per platform.
+name: Build standalone binaries
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: binaries-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  binary:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: linux-x86_64
+          # arm64: see actions/runner-images (macOS 15 Arm64)
+          - os: macos-15
+            label: macos-arm64
+          # x86_64 Intel: see actions/runner-images (macOS 15 x64)
+          - os: macos-15-intel
+            label: macos-x86_64
+          - os: windows-latest
+            label: windows-x86_64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install project and PyInstaller
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${{ github.workspace }}"
+          python -m venv .venv-binary-build
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            PY=".venv-binary-build/Scripts/python"
+          else
+            PY=".venv-binary-build/bin/python"
+          fi
+          "$PY" -m pip install -U pip
+          "$PY" -m pip install -e ".[binary]"
+
+      - name: PyInstaller build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${{ github.workspace }}"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            PY=".venv-binary-build/Scripts/python"
+          else
+            PY=".venv-binary-build/bin/python"
+          fi
+          rm -rf build/pyinstaller packaging/dist
+          mkdir -p packaging/dist
+          "$PY" -m PyInstaller --clean --noconfirm \
+            --distpath packaging/dist \
+            --workpath build/pyinstaller \
+            packaging/repofix.spec
+
+      - name: Stage artifact with clear filename
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p staging
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            test -f packaging/dist/repofix.exe
+            cp packaging/dist/repofix.exe "staging/repofix-${{ matrix.label }}.exe"
+          else
+            test -f packaging/dist/repofix
+            cp packaging/dist/repofix "staging/repofix-${{ matrix.label }}"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: repofix-${{ matrix.label }}
+          path: staging/*
+          if-no-files-found: error
