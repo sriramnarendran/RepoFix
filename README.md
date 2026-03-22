@@ -54,66 +54,78 @@ Default clone and config locations: **`~/.repofix/repos/`**, **`~/.repofix/confi
 
 ## Installation
 
-**Requirements:** Python **3.10+**, **`git`** on your `PATH`. For Docker-based projects, Docker must be available when the stack needs it.
+**Always required:** **`git`** on your **`PATH`**.
 
-### PyPI
+**Sometimes required:** **Docker** when the project you run is Docker-based.
+
+---
+
+### 1. One-line install (recommended)
+
+Installs the **standalone binary** from **GitHub Releases** into **`~/.local/bin`** (use **`INSTALL_PREFIX`** to change the directory). **No Python** is needed for RepoFix itself.
+
+```bash
+curl -sSf --proto '=https' --tlsv1.2 \
+  https://raw.githubusercontent.com/sriramnarendran/RepoFix/main/scripts/install_binary.sh | bash
+```
+
+If `~/.local/bin` is not on your **`PATH`**, add it. Then:
+
+```bash
+repofix --help
+```
+
+---
+
+### 2. Install with pip
+
+Requires **Python 3.10+**.
 
 ```bash
 pip install repofix
 ```
 
-### One-liner (curl)
-
-The script installs from PyPI (same as `pip install --user`, with a Python 3.10+ check):
+Isolated CLI (recommended if you use pipx for tools):
 
 ```bash
-curl -sSf --proto '=https' --tlsv1.2 \
-  https://raw.githubusercontent.com/sriramnarendran/RepoFix/main/scripts/install.sh | bash
+pipx install repofix
 ```
 
-Isolated environment with [pipx](https://pipx.pypa.io/) (pass flags after `bash -s --` when piping):
+Using a virtual environment:
 
 ```bash
-curl -sSf --proto '=https' --tlsv1.2 \
-  https://raw.githubusercontent.com/sriramnarendran/RepoFix/main/scripts/install.sh | bash -s -- --pipx
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install repofix
 ```
-
-Pin a release:
 
 ```bash
-curl -sSf --proto '=https' --tlsv1.2 \
-  https://raw.githubusercontent.com/sriramnarendran/RepoFix/main/scripts/install.sh | env REPOFIX_VERSION=0.1.0 bash
+repofix --help
 ```
 
-**Install from source** (contributors):
+---
+
+### Other ways to get the binary
+
+Download from [Releases](https://github.com/sriramnarendran/RepoFix/releases) or [CI artifacts](https://github.com/sriramnarendran/RepoFix/actions/workflows/build-binaries.yml); filenames are `repofix-linux-x86_64`, `repofix-macos-arm64`, `repofix-macos-x86_64`, `repofix-windows-x86_64.exe`. Build locally: `./scripts/build_binary.sh`.
+
+---
+
+### `repofix` not found
+
+- **`pip install --user`:** add Python’s user script directory to your PATH (often `~/.local/bin` on Linux/macOS).
+- **Virtualenv:** activate the venv before running `repofix`.
+- **Binary:** ensure `~/.local/bin` (or **`INSTALL_PREFIX`**) is on **`PATH`**.
+
+---
+
+### Install from source (contributors)
 
 ```bash
 git clone https://github.com/sriramnarendran/RepoFix.git
 cd RepoFix
 pip install -e ".[dev]"
 ```
-
-### Standalone binary (no Python needed on the target machine)
-
-PyInstaller bundles this project into a single executable for **one OS and CPU at a time** (Linux, macOS, and Windows each need their own build).
-
-**CI (all three platforms):** push a version tag (e.g. `v0.1.0`) or run the [Build standalone binaries](https://github.com/sriramnarendran/RepoFix/actions/workflows/build-binaries.yml) workflow manually. Download the **Artifacts** zip for:
-
-| Artifact | Use on |
-|----------|--------|
-| `repofix-linux-x86_64` | 64-bit Linux |
-| `repofix-macos-arm64` | Apple Silicon Mac |
-| `repofix-macos-x86_64` | Intel Mac |
-| `repofix-windows-x86_64.exe` | 64-bit Windows |
-
-**Local build** (current machine only) uses a **clean venv** so unrelated packages (e.g. PyTorch) in your global Python are not pulled in:
-
-```bash
-./scripts/build_binary.sh
-# → packaging/dist/repofix   (or repofix.exe on Windows)
-```
-
-Requirements for **running** any binary are unchanged: **`git`** on `PATH`, and Docker when the repo you run needs it. Optional local LLM / cloud keys behave like the pip install.
 
 ---
 

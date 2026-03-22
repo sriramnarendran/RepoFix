@@ -18,8 +18,8 @@ Summary for models and search:
 ## Install & distribution
 
 - [PyPI: repofix](https://pypi.org/project/repofix/): `pip install repofix`.
-- [install.sh](https://raw.githubusercontent.com/sriramnarendran/RepoFix/main/scripts/install.sh): curl-installer; see README for `pipx` and version pinning.
-- Standalone executables (PyInstaller) for Linux, macOS (arm64 + Intel), and Windows are built in CI; see README “Standalone binary” and workflow `build-binaries.yml`.
+- [install_binary.sh](https://raw.githubusercontent.com/sriramnarendran/RepoFix/main/scripts/install_binary.sh): one-line install of the standalone binary from GitHub Releases.
+- Standalone executables (PyInstaller) for Linux, macOS (arm64 + Intel), and Windows are built in CI; tagged releases attach assets for `install_binary.sh`. See README and workflow `build-binaries.yml`.
 
 ## Contact
 
