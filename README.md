@@ -2,9 +2,10 @@
 
 # RepoFix
 
+**Fix and run any repo instantly**
+
 **Clone any GitHub repo, detect the stack, install dependencies, run it, and recover from failures — without a three-hour README scavenger hunt.**
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-alpha-orange.svg)]()
 
