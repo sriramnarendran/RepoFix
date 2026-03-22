@@ -9,6 +9,8 @@ from typing import Any
 
 import yaml
 
+from repofix.detection.readme_util import read_readme_text
+
 
 @dataclass
 class StackInfo:
@@ -376,14 +378,7 @@ def _detect_dart(path: Path) -> StackInfo | None:
 # ── README helper ─────────────────────────────────────────────────────────────
 
 def _read_readme(path: Path) -> str | None:
-    for name in ("README.md", "README.rst", "README.txt", "README"):
-        f = path / name
-        if f.exists():
-            try:
-                return f.read_text(errors="replace")[:8000]
-            except Exception:
-                pass
-    return None
+    return read_readme_text(path, max_chars=8000)
 
 
 # Type hint forward ref fix

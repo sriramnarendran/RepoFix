@@ -34,7 +34,8 @@ from repofix.fixing.retry import (
 )
 from repofix.core import process_registry as registry
 from repofix.core.make_shellflags_fix import (
-    fix_shellflags_trailing_c_in_repo,
+    env_with_term_for_make,
+    fix_make_shellflags_in_repo,
     is_make_command,
 )
 from repofix.core.process_registry import ProcessEntry, make_log_path
@@ -278,11 +279,11 @@ def run(repo_path: Path, source: str, options: RunOptions) -> RunResult:
     if any(
         is_make_command(c) for c in (commands.install, commands.build, commands.run)
     ):
-        n = fix_shellflags_trailing_c_in_repo(repo_path)
+        n = fix_make_shellflags_in_repo(repo_path)
         if n:
             display.info(
-                f"Adjusted [bold].SHELLFLAGS[/bold] in {n} file(s): removed trailing "
-                "[bold]-c[/bold] (GNU Make already passes [bold]-c[/bold] to the shell)."
+                f"Adjusted [bold].SHELLFLAGS[/bold] in {n} file(s): relaxed [bold]-e[/bold]/[bold]-eu[/bold] "
+                "so [bold]$(shell …)[/bold] probes work (kept trailing [bold]-c[/bold] — GNU Make requires it)."
             )
 
     # ── 6-8. Install → Build → Run with fix-retry loop ────────────────────────
@@ -1651,10 +1652,10 @@ def _last_resort_pipeline(
     if any(
         is_make_command(c) for c in (commands.install, commands.build, commands.run)
     ):
-        n = fix_shellflags_trailing_c_in_repo(repo_path)
+        n = fix_make_shellflags_in_repo(repo_path)
         if n:
             display.info(
-                f"Adjusted [bold].SHELLFLAGS[/bold] in {n} file(s): removed trailing [bold]-c[/bold]."
+                f"Adjusted [bold].SHELLFLAGS[/bold] in {n} file(s) for GNU Make compatibility."
             )
 
     # Install
@@ -1778,9 +1779,16 @@ def _maybe_npm_global_cli_hint(
     )
 
 
-def _run_step(command: str, repo_path: Path, env: dict, debug: bool):
+def _env_for_shell_cmd(cmd: str | None, env: dict[str, str]) -> dict[str, str]:
+    """``TERM`` for ``make`` so ``$(shell tput …)`` works in non-interactive runs."""
+    return env_with_term_for_make(env) if is_make_command(cmd) else env
+
+
+def _run_step(command: str, repo_path: Path, env: dict[str, str], debug: bool):
     from repofix.core.executor import run_command
-    return run_command(command, cwd=repo_path, env=env, stream=True, debug=debug)
+
+    run_env = _env_for_shell_cmd(command, env)
+    return run_command(command, cwd=repo_path, env=run_env, stream=True, debug=debug)
 
 
 def _multi_service_proc_healthy(proc) -> bool:
@@ -2030,7 +2038,13 @@ def _run_multi(
             root_install_ok = False
             for _root_attempt in range(_install_cap):
                 display.step(f"[bold]{root_install}[/bold] @ {repo_path.name}/")
-                r_result = run_command(root_install, cwd=repo_path, env=ws_env, stream=True, debug=debug)
+                r_result = run_command(
+                    root_install,
+                    cwd=repo_path,
+                    env=_env_for_shell_cmd(root_install, ws_env),
+                    stream=True,
+                    debug=debug,
+                )
                 if r_result.succeeded:
                     root_install_ok = True
                     break
@@ -2077,7 +2091,13 @@ def _run_multi(
                         f"[bold {svc.spec.log_color}][{svc.spec.name}][/bold {svc.spec.log_color}] "
                         f"{_svc_install_cmd}"
                     )
-                    result = run_command(_svc_install_cmd, cwd=svc.spec.path, env=svc.env, stream=True, debug=debug)
+                    result = run_command(
+                        _svc_install_cmd,
+                        cwd=svc.spec.path,
+                        env=_env_for_shell_cmd(_svc_install_cmd, svc.env),
+                        stream=True,
+                        debug=debug,
+                    )
                     if result.succeeded:
                         break
                     # Try a targeted fix (e.g. npm lifecycle failure → --ignore-scripts)
@@ -2139,7 +2159,13 @@ def _run_multi(
                     f"[bold {svc.spec.log_color}][{svc.spec.name}][/bold {svc.spec.log_color}] "
                     f"{_svc_build_cmd}"
                 )
-                result = run_command(_svc_build_cmd, cwd=svc.spec.path, env=svc.env, stream=True, debug=debug)
+                result = run_command(
+                    _svc_build_cmd,
+                    cwd=svc.spec.path,
+                    env=_env_for_shell_cmd(_svc_build_cmd, svc.env),
+                    stream=True,
+                    debug=debug,
+                )
                 if result.succeeded:
                     break
 

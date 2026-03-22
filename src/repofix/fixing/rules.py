@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from repofix.detection.commands import _node_subpackage_bin_info
 from repofix.detection.stack import StackInfo
 from repofix.fixing.classifier import ClassifiedError
 
@@ -60,13 +61,24 @@ def _fix_missing_dependency(error: ClassifiedError, stack: StackInfo, repo_path:
 
     if runtime in ("node", "npm", "yarn", "pnpm", "bun"):
         pm = _detect_pkg_manager(repo_path)
-        install_map = {
-            "yarn": f"yarn add {package}",
-            "pnpm": f"pnpm add {package}",
-            "bun": f"bun add {package}",
-            "npm": f"npm install {package}",
-        }
-        cmd = install_map.get(pm, f"npm install {package}")
+        sub_info = _node_subpackage_bin_info(repo_path)
+        subdir = sub_info[1] if sub_info else None
+        if subdir:
+            install_map = {
+                "yarn": f"yarn --cwd {subdir} add {package}",
+                "pnpm": f"pnpm add {package} --dir {subdir}",
+                "bun": f"bun add {package} --cwd {subdir}",
+                "npm": f"npm install {package} --prefix {subdir}",
+            }
+            cmd = install_map.get(pm, f"npm install {package} --prefix {subdir}")
+        else:
+            install_map = {
+                "yarn": f"yarn add {package}",
+                "pnpm": f"pnpm add {package}",
+                "bun": f"bun add {package}",
+                "npm": f"npm install {package}",
+            }
+            cmd = install_map.get(pm, f"npm install {package}")
         return FixAction(
             description=f"Install missing Node.js package: {package}",
             commands=[cmd],
@@ -1044,11 +1056,36 @@ _TOOL_INSTALL_CMDS: dict[str, str] = {
 }
 
 
+def _python_cli_install_command(tool: str) -> str | None:
+    """Install a CPython interpreter when ``python`` / ``python3.x`` is missing from PATH.
+
+    Uses distro packages first (Debian/Ubuntu/RHEL-ish), then ``uv python install`` or
+    ``pyenv`` if present. Exact ``3.x`` builds may require a PPA (Ubuntu) or ``uv`` —
+    we cannot guarantee every OS ships ``python3.12`` via apt alone.
+    """
+    tl = tool.strip()
+    if tl in ("python", "python2", "python3"):
+        return (
+            "sudo apt-get update -qq && sudo apt-get install -y python3 python3-venv python3-pip "
+            "2>/dev/null || sudo yum install -y python3 2>/dev/null || true"
+        )
+    m = re.fullmatch(r"python3\.(\d+)", tl)
+    if m:
+        ver = f"3.{m.group(1)}"
+        return (
+            f"sudo apt-get update -qq && sudo apt-get install -y {tl} {tl}-venv 2>/dev/null || "
+            f"sudo yum install -y {tl} 2>/dev/null || "
+            f"(command -v uv >/dev/null 2>&1 && uv python install {ver}) || "
+            f"(command -v pyenv >/dev/null 2>&1 && pyenv install -s {ver}) || true"
+        )
+    return None
+
+
 def _fix_missing_tool(error: ClassifiedError, stack: StackInfo, repo_path: Path) -> FixAction | None:
     tool = (error.extracted.get("tool_name") or "").strip()
     if not tool:
         return None
-    cmd = _TOOL_INSTALL_CMDS.get(tool)
+    cmd = _TOOL_INSTALL_CMDS.get(tool) or _python_cli_install_command(tool)
     if not cmd:
         return None
     return FixAction(

@@ -6,8 +6,9 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable
 
+from repofix.detection.readme_util import read_readme_text
 from repofix.detection.stack import StackInfo
 
 
@@ -41,34 +42,35 @@ def discover(
     readme_ai_fallback: Callable[[str], CommandSet] | None = None,
 ) -> CommandSet:
     """
-    Discover commands using a stack-aware priority order:
+    Discover commands using a priority order that puts explicit documentation first:
 
-      1. CLI overrides (always wins)
-      2. Makefile  — highest explicit developer intent; checked for ALL stacks
-      3. Docker    — if stack IS docker, use compose/dockerfile commands next
-      4. Procfile  — explicit process declaration
-      5. uv.lock   — uv-managed Python projects; install overrides Makefile's target
-      6. package.json scripts — Node.js repos without a Makefile
-      7. Stack-specific defaults
-      8. README AI fallback
+      1. CLI overrides      — always wins, applied last as a final replacement
+      2. README heuristic   — rule-based scan of Install/Setup/QuickStart/Run sections
+      3. Makefile           — explicit developer scripts; checked for ALL stacks
+      4. Docker             — if stack IS docker, use compose/dockerfile commands next
+      5. Procfile / uv.lock / package.json / subpackage-bin / stack-specific / defaults
+      6. README AI fallback — last resort when no heuristic produced a run command
 
-    When a Makefile only covers part of the picture (e.g. has `run` but no
-    `install`), the gaps are filled from the next applicable source.
+    Merge semantics: each source fills in fields that higher-priority sources left
+    as None.  Two exceptions override this for install commands (since they know the
+    precise install location):
 
-    Special case: when ``uv.lock`` is present the Makefile's install target is
-    typically just a thin wrapper around ``uv pip install`` and is less reliable
-    than ``uv sync``.  The uv-based install command is therefore given priority
-    over the Makefile install target, while the Makefile's run/build targets are
-    still honoured.
+    * ``subpackage-bin`` install (e.g. ``npm install --prefix app/``) beats both the
+      README's generic ``npm install`` and the Makefile's ``make bootstrap``.
+    * ``uv.lock`` install (``uv sync``) beats the Makefile's install target and any
+      generic ``pip install`` the README might mention.
     """
-    # 1. Hard CLI overrides — applied at the very end
+    # 1. Hard CLI overrides — short-circuit only when BOTH are specified
     if override_install and override_run:
         return CommandSet(install=override_install, run=override_run, source="cli-override")
 
-    # 2. Makefile — first choice regardless of stack
+    # 2. README heuristic — highest priority: explicit user-facing documentation
+    readme_cmds = _from_readme_heuristic(repo_path)
+
+    # 3. Makefile — explicit developer scripts
     mk = _from_makefile(repo_path)
 
-    # 3. Stack-specific source for install/build/run
+    # 4. Stack-specific source for install/build/run
     if stack.is_docker():
         stack_cmds = _from_docker(repo_path, stack)
     else:
@@ -77,6 +79,7 @@ def discover(
             or _from_uv_project(repo_path, stack)
             or _from_node_workspaces(repo_path, stack)
             or _from_package_json(repo_path, stack)
+            or _from_node_subpackage_bin(repo_path, stack)
             or _from_python_packaging(repo_path, stack)
             or _from_java_build_tool(repo_path, stack)
             or _from_go_project(repo_path, stack)
@@ -84,23 +87,31 @@ def discover(
             or _from_stack_defaults(stack)
         )
 
-    # For uv-managed repos, let uv sync override the Makefile install target
-    # (Makefile run/build targets are still honoured via the merge below).
-    if stack_cmds and stack_cmds.source == "uv.lock" and mk and mk.install:
-        mk.install = None
+    # subpackage-bin install knows the exact --prefix; beats README + Makefile
+    if stack_cmds and stack_cmds.source == "subpackage-bin":
+        if mk:
+            mk.install = None
+        if readme_cmds:
+            readme_cmds.install = None
 
-    # Merge: Makefile fields take priority; gaps filled from stack_cmds
-    cmds = _merge(mk, stack_cmds)
+    # uv.lock install (uv sync) is more reliable than any generic pip/make target
+    if stack_cmds and stack_cmds.source == "uv.lock":
+        if mk:
+            mk.install = None
+        if readme_cmds:
+            readme_cmds.install = None
+
+    # Merge chain: README > Makefile > stack_cmds (each fills gaps left by higher sources)
+    cmds = _merge(readme_cmds, _merge(mk, stack_cmds))
 
     if cmds:
-        # Apply any partial overrides
         if override_install:
             cmds.install = override_install
         if override_run:
             cmds.run = override_run
         return cmds
 
-    # 7. README AI fallback
+    # 6. README AI fallback — only reached when no heuristic produced ANY commands
     if readme_ai_fallback:
         readme = _read_readme(repo_path)
         if readme:
@@ -277,14 +288,78 @@ def has_java_build_files(path: Path) -> bool:
     return False
 
 
+_NODE_SUBPKG_SKIP_DIRS: frozenset[str] = frozenset({
+    "node_modules", ".git", ".gradle", ".mvn", ".idea",
+    "__pycache__", ".venv", "venv", "dist", "build", ".next",
+})
+
+
+def _node_subpackage_bin_info(path: Path) -> tuple[str, str] | None:
+    """Return ``(node_cmd, subdir)`` for a direct child package with a ``bin`` entry.
+
+    *subdir* is the relative path to that package (one segment). Install commands
+    should run in that directory so ``node_modules`` matches the CLI (MegaLinter,
+    etc.).
+    """
+    for child in sorted(path.iterdir()):
+        if not child.is_dir() or child.name in _NODE_SUBPKG_SKIP_DIRS:
+            continue
+        if child.name.startswith("."):
+            continue
+        pkg_file = child / "package.json"
+        if not pkg_file.exists():
+            continue
+        try:
+            data: dict = json.loads(pkg_file.read_text())
+        except Exception:
+            continue
+        bin_field = data.get("bin")
+        if not bin_field:
+            continue
+        if isinstance(bin_field, str):
+            entry = bin_field
+        else:
+            entry = next(iter(bin_field.values()))
+        rel_script = child / entry
+        if rel_script.is_file():
+            try:
+                rel = rel_script.relative_to(path)
+            except ValueError:
+                continue
+            return (f"node {rel}", child.name)
+    return None
+
+
+def _node_subpackage_bin_run(path: Path) -> str | None:
+    """Return ``node <rel/path>`` for a direct child package with a ``bin`` entry."""
+    info = _node_subpackage_bin_info(path)
+    return info[0] if info else None
+
+
+def _from_node_subpackage_bin(path: Path, stack: StackInfo) -> CommandSet | None:
+    """When the root ``package.json`` has no runnable scripts/bin, use a subpackage CLI."""
+    if stack.runtime.lower() != "node":
+        return None
+    info = _node_subpackage_bin_info(path)
+    if not info:
+        return None
+    _run_cmd, subdir = info
+    return CommandSet(
+        install=_install_into_subpackage(path, subdir),
+        run=_run_cmd,
+        source="subpackage-bin",
+    )
+
+
 def find_node_entry(path: Path) -> str | None:
     """Return the best ``node <file>`` command for a Node.js repo whose default
     entry file (index.js) was not found.
 
     Search order:
       1. ``package.json`` → ``main`` field (if the file exists on disk)
-      2. Common entry-file candidates, checked in priority order
-      3. TypeScript variants (``ts-node`` / ``npx ts-node``)
+      2. Direct child ``package.json`` → ``bin`` field (monorepo CLI packages)
+      3. Common entry-file candidates, checked in priority order
+      4. TypeScript variants (``ts-node`` / ``npx ts-node``)
     """
     # 1. package.json main field — skip plugin paths (e.g. .opencode/plugins/...)
     pkg_file = path / "package.json"
@@ -296,6 +371,10 @@ def find_node_entry(path: Path) -> str | None:
                 return f"node {main}"
         except Exception:
             pass
+
+    sub_bin = _node_subpackage_bin_run(path)
+    if sub_bin:
+        return sub_bin
 
     # 2. Common JS entry-file candidates (src/index.js before root index.js for bin-style packages)
     _JS_CANDIDATES = [
@@ -441,6 +520,20 @@ def node_install_command(path: Path) -> str:
         "pnpm": "pnpm install",
         "bun": "bun install",
     }.get(pm, "npm install")
+
+
+def _install_into_subpackage(repo_path: Path, subdir: str) -> str:
+    """Install dependencies into a direct child package's ``node_modules`` (CLI monorepos)."""
+    pm = _detect_package_manager(repo_path)
+    if pm == "npm":
+        return f"npm install --prefix {subdir}"
+    if pm == "yarn":
+        return f"yarn --cwd {subdir} install"
+    if pm == "pnpm":
+        return f"pnpm install --dir {subdir}"
+    if pm == "bun":
+        return f"bun install --cwd {subdir}"
+    return f"npm install --prefix {subdir}"
 
 
 # ── Node.js workspace / monorepo detection ────────────────────────────────────
@@ -1164,11 +1257,326 @@ def _from_stack_defaults(stack: StackInfo) -> CommandSet | None:
 # ── README helper ─────────────────────────────────────────────────────────────
 
 def _read_readme(path: Path) -> str | None:
-    for name in ("README.md", "README.rst", "README.txt", "README"):
-        f = path / name
-        if f.exists():
-            try:
-                return f.read_text(errors="replace")[:8000]
-            except Exception:
-                pass
-    return None
+    # Larger window than stack AI so install/run sections are less often truncated.
+    return read_readme_text(path, max_chars=24_000)
+
+
+# ── README heuristic (rule-based, no AI) ──────────────────────────────────────
+# Markdown fenced blocks (``` and ~~~), CommonMark-style open/close lengths,
+# optional 0–3 space indent, and language allowlists so JSON/YAML blocks are ignored.
+
+_README_FENCE_OPEN_RE = re.compile(r"^\s{0,3}(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
+
+# First word of the info string after an opening fence (e.g. ```bash  linenums)
+_README_SHELL_FENCE_LANGS: frozenset[str] = frozenset({
+    "bash", "sh", "shell", "zsh", "console", "cmd", "command", "powershell", "pwsh", "ps1",
+    "bat", "batch", "fish", "nu", "terminal", "tty", "prompt", "shell-session",
+    "text", "txt", "plain", "plaintext", "output", "nocode",
+    "dockerfile", "containerfile",
+})
+
+_SHELL_PREFIX_RE = re.compile(r"^[\$>]\s+")
+
+# Lines that look like CI/CD config or template placeholders — skip them
+_README_SKIP_LINE_RE = re.compile(
+    r"(?:uses:|run:|with:|env:|image:|jobs?:|steps?:|name:|on:|if:|needs?:)"
+    r"|<[A-Z_][A-Z0-9_]*>"
+    r"|\$\{[^}]+\}"
+    r"|your[_\-]?(?:token|key|secret|api)"
+    r"|example\.com|placeholder"
+    r"|\bcurl\s+.+\|\s*(?:ba)?sh\b",
+    re.I,
+)
+
+_README_INSTALL_PATTERNS: list[re.Pattern] = [
+    re.compile(r"\bnpm\s+(?:i|install|ci)\b", re.I),
+    re.compile(r"\bpnpm\s+(?:i|install|add)\b", re.I),
+    re.compile(r"\byarn\s+(?:install|add)\b", re.I),
+    re.compile(r"\bbun\s+install\b", re.I),
+    re.compile(r"\buv\s+(?:sync|pip\s+install|install|tool\s+install)\b", re.I),
+    re.compile(r"\bpip\s+install\b", re.I),
+    re.compile(r"\bpipx\s+install\b", re.I),
+    re.compile(r"\bpoetry\s+install\b", re.I),
+    re.compile(r"\bpipenv\s+install\b", re.I),
+    re.compile(r"\bconda\s+(?:install|create)\b", re.I),
+    re.compile(r"\bgo\s+mod\s+(?:download|tidy)\b", re.I),
+    re.compile(r"\bcargo\s+build(?:\s+--release)?\b", re.I),
+    re.compile(r"\bbundle\s+install\b", re.I),
+    re.compile(r"\bcomposer\s+install\b", re.I),
+    re.compile(r"\bdocker\s+(?:pull|build)\b", re.I),
+    re.compile(r"\bdocker\s+compose\s+(?:build|pull)\b", re.I),
+    re.compile(r"\bdocker-compose\s+(?:build|pull)\b", re.I),
+    re.compile(r"\bmake\s+(?:install|setup|bootstrap|deps|prepare)\b", re.I),
+    re.compile(r"\bjust\s+(?:deps|install|bootstrap|setup)\b", re.I),
+    re.compile(r"\bflutter\s+pub\s+get\b", re.I),
+    re.compile(r"\bmvn\s+(?:install|package|compile)\b", re.I),
+    re.compile(r"\bgradle\s+(?:build|assemble)\b", re.I),
+    re.compile(r"\b\./gradlew(?:\s+\S+)*\s+(?:build|assemble|install)\b", re.I),
+    re.compile(r"\bnpx\s+\S+.*\s--install\b", re.I),
+    re.compile(r"\bdotnet\s+(?:restore|build)\b", re.I),
+]
+
+_README_RUN_PATTERNS: list[re.Pattern] = [
+    re.compile(r"\bnpm\s+(?:start|run\s+[\w:@/-]+)\b", re.I),
+    re.compile(r"\bpnpm\s+(?:start|run\s+[\w:@/-]+|dev|dlx)\b", re.I),
+    re.compile(r"\byarn\s+(?:start|run\s+[\w:@/-]+|dev)\b", re.I),
+    re.compile(r"\bbun\s+(?:start|run\s+[\w:@/-]+|dev)\b", re.I),
+    re.compile(r"\bnpx\s+\S+", re.I),
+    re.compile(r"\bnode\s+\S+", re.I),
+    re.compile(r"\bpython(?:\d[\d.]*)?\s+(?:-m\s+\S+|\S+\.py)\b", re.I),
+    re.compile(r"\buv\s+run\b", re.I),
+    re.compile(r"\buvicorn\s+\S+", re.I),
+    re.compile(r"\bflask\s+run\b", re.I),
+    re.compile(r"\bgunicorn\s+\S+", re.I),
+    re.compile(r"\bgo\s+run\b", re.I),
+    re.compile(r"\bcargo\s+run\b", re.I),
+    re.compile(r"\bjava\s+-jar\b", re.I),
+    re.compile(r"\bdocker\s+run\b", re.I),
+    re.compile(r"\bdocker\s+compose(?:\s+--profile\s+[\w-]+)?\s+up\b", re.I),
+    re.compile(r"\bdocker-compose(?:\s+--profile\s+[\w-]+)?\s+up\b", re.I),
+    re.compile(r"\bmake\s+(?:run|start|dev|serve|up|watch)\b", re.I),
+    re.compile(r"\bjust\s+(?:run|start|dev|serve|up|watch)\b", re.I),
+    re.compile(r"\bruby\s+\S+", re.I),
+    re.compile(r"\brails\s+(?:server|s)\b", re.I),
+    re.compile(r"\bphp\s+-S\b", re.I),
+    re.compile(r"\bflutter\s+run\b", re.I),
+    re.compile(r"\bnext\s+dev\b", re.I),
+    re.compile(r"\bvite(?:\s+[\w./:%-]+)*\s*$", re.I),
+    re.compile(r"\bastro\s+dev\b", re.I),
+    re.compile(r"\bdotnet\s+run\b", re.I),
+    re.compile(r"\bturbo\s+(?:dev|run)\b", re.I),
+    re.compile(r"\bmix\s+(?:phx\.server|run)\b", re.I),
+]
+
+_README_INSTALL_SECTION_RE = re.compile(
+    r"install(?:ation|ing)?|set[\s\-]?up|getting[\s\-]started|"
+    r"quick[\s\-]start|prerequisites?|requirements?|dependencies|"
+    r"how\s+to\s+(?:run|use|install|build)|"
+    r"bootstrap|dev\s+environment|local\s+environment|"
+    r"build(?:ing)?\s+from\s+source",
+    re.I,
+)
+
+_README_RUN_SECTION_RE = re.compile(
+    r"usage|running|run[\s\-]?(?:locally|app|server|the\s+app)?|"
+    r"start(?:ing)?|development|local[\s\-]?dev(?:elopment)?|"
+    r"try\s+it|demo|execut(?:e|ion)",
+    re.I,
+)
+
+_MD_HEADING_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]*\)")
+_MD_HEADING_INLINE_CODE_RE = re.compile(r"`([^`]+)`")
+_README_URL_LINE_RE = re.compile(r"^https?://", re.I)
+
+
+def _readme_try_open_fence(line: str) -> tuple[str, int, str] | None:
+    m = _README_FENCE_OPEN_RE.match(line.replace("\r", ""))
+    if not m:
+        return None
+    fence = m.group("fence")
+    info = (m.group("info") or "").strip()
+    return fence[0], len(fence), info
+
+
+def _readme_fence_line_closes(line: str, ch: str, min_len: int) -> bool:
+    s = line.replace("\r", "").strip()
+    if not s or s[0] != ch:
+        return False
+    i = 0
+    while i < len(s) and s[i] == ch:
+        i += 1
+    if i < min_len:
+        return False
+    return i == len(s) or not s[i:].strip()
+
+
+def _readme_fence_info_is_for_commands(info: str) -> bool:
+    """True for unlabeled fences and shell-ish / plain-text fences; false for json, yaml, etc."""
+    if not info:
+        return True
+    first = info.split()[0].lower()
+    return first in _README_SHELL_FENCE_LANGS
+
+
+def _readme_fence_outside_mask(lines: list[str]) -> list[bool]:
+    """One bool per line: True when the line is outside fenced code blocks (``` and ~~~)."""
+    n = len(lines)
+    out = [True] * n
+    i = 0
+    inside = False
+    ch = "`"
+    olen = 3
+    while i < n:
+        line = lines[i]
+        if not inside:
+            op = _readme_try_open_fence(line)
+            if op:
+                inside = True
+                ch, olen, _ = op
+                out[i] = False
+                i += 1
+                continue
+            i += 1
+        else:
+            if _readme_fence_line_closes(line, ch, olen):
+                inside = False
+                out[i] = False
+                i += 1
+            else:
+                out[i] = False
+                i += 1
+    return out
+
+
+def _readme_extract_shell_fenced_bodies(text: str) -> list[str]:
+    """Bodies of fenced blocks whose language tag warrants command extraction."""
+    lines = text.splitlines()
+    bodies: list[str] = []
+    i = 0
+    while i < len(lines):
+        op = _readme_try_open_fence(lines[i])
+        if not op:
+            i += 1
+            continue
+        ch, olen, info = op
+        if not _readme_fence_info_is_for_commands(info):
+            i += 1
+            while i < len(lines) and not _readme_fence_line_closes(lines[i], ch, olen):
+                i += 1
+            if i < len(lines):
+                i += 1
+            continue
+        i += 1
+        chunk: list[str] = []
+        while i < len(lines) and not _readme_fence_line_closes(lines[i], ch, olen):
+            chunk.append(lines[i])
+            i += 1
+        if i < len(lines):
+            i += 1
+        bodies.append("\n".join(chunk))
+    return bodies
+
+
+def _readme_join_continuations(lines: Iterable[str]) -> list[str]:
+    """Join shell lines ending with a backslash with the following line."""
+    out: list[str] = []
+    buf = ""
+    for line in lines:
+        s = line.rstrip()
+        if len(s) > 1 and s.endswith("\\") and not s.endswith("\\\\"):
+            buf += s[:-1].rstrip() + " "
+            continue
+        out.append(buf + s)
+        buf = ""
+    if buf:
+        out.append(buf.rstrip())
+    return out
+
+
+def _readme_clean_command_line(raw: str) -> str:
+    line = raw.strip()
+    if line.startswith("\ufeff"):
+        line = line.lstrip("\ufeff")
+    line = _SHELL_PREFIX_RE.sub("", line).strip()
+    line = re.sub(r"\s+", " ", line)
+    return line
+
+
+def _normalize_readme_heading(raw: str) -> str:
+    """Strip common Markdown from heading text for keyword matching."""
+    s = raw.strip()
+    s = _MD_HEADING_LINK_RE.sub(r"\1", s)
+    s = _MD_HEADING_INLINE_CODE_RE.sub(r"\1", s)
+    return s.strip()
+
+
+def _split_readme_sections(readme: str) -> list[tuple[str, str]]:
+    """Return (heading_text, section_body) pairs from a Markdown README.
+
+    ATX headings (# .. ####) are ignored when inside fenced code blocks (``` and ~~~).
+    Heading text is normalized (links / inline code stripped) for matching.
+    """
+    heading_line_re = re.compile(r"^#{1,4}\s+(.+?)\s*$")
+    raw_lines = readme.splitlines(keepends=True)
+    content_lines = [ln.rstrip("\r\n") for ln in raw_lines]
+    outside = _readme_fence_outside_mask(content_lines)
+    headings: list[tuple[str, int]] = []
+
+    offset = 0
+    for idx, raw in enumerate(raw_lines):
+        line_start = offset
+        offset += len(raw)
+        if not outside[idx]:
+            continue
+        stripped = content_lines[idx]
+        m = heading_line_re.match(stripped)
+        if m:
+            h = _normalize_readme_heading(m.group(1))
+            headings.append((h, line_start))
+
+    if not headings:
+        return [("", readme)]
+
+    result: list[tuple[str, str]] = []
+    for i, (heading, start) in enumerate(headings):
+        end = headings[i + 1][1] if i + 1 < len(headings) else len(readme)
+        result.append((heading, readme[start:end]))
+    return result
+
+
+def _extract_readme_commands(text: str) -> tuple[str | None, str | None]:
+    """Return (install_cmd, run_cmd) by scanning shell-like fenced code blocks in *text*."""
+    install_cmd: str | None = None
+    run_cmd: str | None = None
+    for body in _readme_extract_shell_fenced_bodies(text):
+        for raw in _readme_join_continuations(body.splitlines()):
+            for fragment in re.split(r"\s+&&\s+", raw):
+                line = _readme_clean_command_line(fragment)
+                if not line or line.startswith("#") or _README_SKIP_LINE_RE.search(line):
+                    continue
+                if _README_URL_LINE_RE.match(line):
+                    continue
+                if not install_cmd and any(p.search(line) for p in _README_INSTALL_PATTERNS):
+                    install_cmd = line
+                elif not run_cmd and any(p.search(line) for p in _README_RUN_PATTERNS):
+                    run_cmd = line
+        if install_cmd and run_cmd:
+            break
+    return install_cmd, run_cmd
+
+
+def _from_readme_heuristic(path: Path) -> CommandSet | None:
+    """Extract install/run commands from README sections without AI.
+
+    Scans installation/setup/quickstart sections first, then run/usage sections,
+    then falls back to the whole README if no section headings matched.
+    Returns None when no recognisable commands are found.
+    """
+    readme = _read_readme(path)
+    if not readme:
+        return None
+
+    sections = _split_readme_sections(readme)
+
+    # Install sections are matched first; run sections exclude any already matched as install
+    # (e.g. "Quick Start" matches both quick-start AND "start" — avoid scanning it twice)
+    install_headings: set[str] = {
+        h for h, _ in sections if _README_INSTALL_SECTION_RE.search(h)
+    }
+    install_text = "\n".join(b for h, b in sections if h in install_headings)
+    run_text = "\n".join(
+        b for h, b in sections
+        if _README_RUN_SECTION_RE.search(h) and h not in install_headings
+    )
+    relevant = (install_text + "\n" + run_text).strip() or readme
+
+    install_cmd, run_cmd = _extract_readme_commands(relevant)
+
+    # If we found a run command but no install, do a full-README scan for install
+    if run_cmd and not install_cmd:
+        install_cmd, _ = _extract_readme_commands(readme)
+
+    if not install_cmd and not run_cmd:
+        return None
+
+    return CommandSet(install=install_cmd, run=run_cmd, source="readme_heuristic")

@@ -190,3 +190,18 @@ def test_fix_missing_pnpm_cli(tmp_path: Path) -> None:
     action = apply_rule(error, _node_stack(), tmp_path)
     assert action is not None
     assert any("pnpm" in cmd and "corepack" in cmd for cmd in action.commands)
+
+
+def test_fix_missing_python3_cli(tmp_path: Path) -> None:
+    error = _make_classified("missing_tool", {"tool_name": "python3"}, "python3: command not found")
+    action = apply_rule(error, _python_stack(), tmp_path)
+    assert action is not None
+    assert any("apt-get" in cmd and "python3" in cmd for cmd in action.commands)
+
+
+def test_fix_missing_python312_cli(tmp_path: Path) -> None:
+    error = _make_classified("missing_tool", {"tool_name": "python3.12"}, "python3.12: command not found")
+    action = apply_rule(error, _python_stack(), tmp_path)
+    assert action is not None
+    assert any("python3.12" in cmd for cmd in action.commands)
+    assert any("uv python install 3.12" in cmd for cmd in action.commands)

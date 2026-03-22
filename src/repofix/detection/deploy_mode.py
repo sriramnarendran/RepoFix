@@ -14,6 +14,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from repofix.detection.readme_util import find_readme_path
+
 
 # ── Data model ────────────────────────────────────────────────────────────────
 
@@ -163,7 +165,7 @@ def _from_readme(repo_path: Path) -> list[DeployMode]:
     if not readme:
         return []
 
-    content = readme.read_text(errors="replace")
+    content = readme.read_text(encoding="utf-8-sig", errors="replace")
     sections = _split_sections(content)
 
     prod_section: dict | None = None
@@ -216,11 +218,7 @@ def _from_readme(repo_path: Path) -> list[DeployMode]:
 
 
 def _find_readme(repo_path: Path) -> Path | None:
-    for name in ("README.md", "readme.md", "README.rst", "README.txt", "README"):
-        p = repo_path / name
-        if p.exists():
-            return p
-    return None
+    return find_readme_path(repo_path)
 
 
 def _split_sections(content: str) -> list[dict]:

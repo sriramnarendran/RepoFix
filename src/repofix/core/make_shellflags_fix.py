@@ -1,12 +1,18 @@
-"""Fix Makefiles that end ``.SHELLFLAGS`` with ``-c``.
+"""Normalize ``.SHELLFLAGS`` for GNU Make + bash.
 
-GNU Make invokes the shell as ``$SHELL $SHELLFLAGS -c <recipe>``. A trailing
-``-c`` in ``.SHELLFLAGS`` duplicates the flag and bash may run an empty script::
+GNU Make runs ``$(shell …)`` as ``$SHELL`` + ``$(.SHELLFLAGS)`` + *command* — it
+does **not** insert ``-c`` itself. The ``-c`` flag must appear **inside**
+``.SHELLFLAGS`` (e.g. ``-o pipefail -c``) or ``$(shell command -v …)`` is
+invoked as a *script path* and bash reports::
 
-    /bin/bash: -c: line 1: syntax error: unexpected end of file
+    bash: command -v uv 2> /dev/null: No such file or directory
 
-Some repos (e.g. MegaLinter) set ``.SHELLFLAGS = -eu -o pipefail -c``. We strip
-only a final ``-c`` token from those lines in Makefiles and ``*.mak`` files.
+Repos such as MegaLinter set ``.SHELLFLAGS = -eu -o pipefail -c``. We remove
+``-eu`` / ``-e`` / ``-u`` (errexit/nounset) so ``$(shell …)`` probes and rc files
+behave, and **keep the trailing ``-c``** — stripping it breaks ``$(shell)``.
+
+A duplicate trailing ``-c`` (``… -c -c``) is extremely rare; if present, we strip
+one trailing ``-c`` so the value ends with a single ``-c``.
 """
 
 from __future__ import annotations
@@ -16,7 +22,8 @@ import re
 from pathlib import Path
 
 _SHELLFLAGS = re.compile(r"^(\s*\.SHELLFLAGS\s*[:?]?=\s*)(.*)$")
-_TRAILING_C = re.compile(r"\s+-c\s*$")
+# Collapse accidental "-c -c" at end (typos); keep a single "-c" for $(shell).
+_DOUBLE_TRAILING_C = re.compile(r"\s+-c\s+-c\s*$")
 
 _EXCLUDE_DIR_NAMES = frozenset(
     {
@@ -31,6 +38,20 @@ _EXCLUDE_DIR_NAMES = frozenset(
         ".eggs",
     }
 )
+
+
+def _relax_errexit(shellflags_value: str) -> str:
+    """Drop ``-e`` / ``-eu`` / ``-u`` shell options that break ``$(shell …)`` or bashrc under ``-u``.
+
+    We remove ``-eu`` entirely (not ``-eu``→``-u``): nounset (``-u``) can make bash
+    source system rc files and fail on ``PS1`` when Make runs non-interactive shells.
+    """
+    s = shellflags_value.strip()
+    s = re.sub(r"(^|\s)-eu(?=\s|$)", r"\1", s)
+    s = re.sub(r"(^|\s)-e(?=\s|$)", r"\1", s)
+    s = re.sub(r"(^|\s)-u(?=\s|$)", r"\1", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
 
 
 def _fix_shellflags_line(line: str) -> tuple[str, bool]:
@@ -52,10 +73,11 @@ def _fix_shellflags_line(line: str) -> tuple[str, bool]:
         return line, False
     prefix, rest = m.group(1), m.group(2)
     stripped = rest.rstrip()
-    new_rest = _TRAILING_C.sub("", stripped)
-    if new_rest == stripped:
+    no_double_c = _DOUBLE_TRAILING_C.sub(" -c", stripped)
+    relaxed = _relax_errexit(no_double_c)
+    if relaxed == stripped:
         return line, False
-    return prefix + new_rest + ending, True
+    return prefix + relaxed + ending, True
 
 
 def _iter_makefile_paths(repo_path: Path):
@@ -70,10 +92,10 @@ def _iter_makefile_paths(repo_path: Path):
                 yield Path(root) / f
 
 
-def fix_shellflags_trailing_c_in_repo(repo_path: Path) -> int:
+def fix_make_shellflags_in_repo(repo_path: Path) -> int:
     """
-    Remove a trailing ``-c`` from ``.SHELLFLAGS`` assignments. Returns the
-    number of files modified.
+    Patch ``.SHELLFLAGS`` lines (relax ``-e``/``-eu``; optional ``-c -c`` → ``-c``).
+    Returns the number of files modified.
     """
     changed_files = 0
     for path in _iter_makefile_paths(repo_path):
@@ -98,6 +120,10 @@ def fix_shellflags_trailing_c_in_repo(repo_path: Path) -> int:
     return changed_files
 
 
+# Backward-compatible name
+fix_shellflags_trailing_c_in_repo = fix_make_shellflags_in_repo
+
+
 def is_make_command(cmd: str | None) -> bool:
     """True if *cmd* runs GNU Make (``make`` or ``make target``)."""
     if not cmd:
@@ -106,3 +132,12 @@ def is_make_command(cmd: str | None) -> bool:
     if s == "make":
         return True
     return s.startswith("make ")
+
+
+def env_with_term_for_make(env: dict[str, str] | None) -> dict[str, str]:
+    """Ensure ``TERM`` is usable for ``tput`` in ``$(shell …)`` when running ``make``."""
+    merged: dict[str, str] = {**(env or {})}
+    t = merged.get("TERM") or os.environ.get("TERM", "")
+    if not t or t == "dumb":
+        merged["TERM"] = "xterm-256color"
+    return merged
