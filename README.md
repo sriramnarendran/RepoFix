@@ -103,6 +103,8 @@ repofix --help
 
 Download from [Releases](https://github.com/sriramnarendran/RepoFix/releases) or [CI artifacts](https://github.com/sriramnarendran/RepoFix/actions/workflows/build-binaries.yml); filenames are `repofix-linux-x86_64`, `repofix-macos-arm64`, `repofix-macos-x86_64`, `repofix-windows-x86_64.exe`. Build locally: `./scripts/build_binary.sh`.
 
+**Linux (glibc):** the x86_64 binary is built on **Ubuntu 22.04** so it runs on typical glibc-based distros from that era onward. If you see **`GLIBC_2.xx` not found**, your OS is older than what that build targets — use **`pip install repofix`** (or a venv) instead, or build the binary on your own machine with `./scripts/build_binary.sh`.
+
 ---
 
 ### `repofix` not found

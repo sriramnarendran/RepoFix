@@ -26,7 +26,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # ubuntu-latest (24.04) links against glibc 2.38+ — breaks older distros. 22.04 ≈ glibc 2.35.
+          - os: ubuntu-22.04
             label: linux-x86_64
           # arm64: see actions/runner-images (macOS 15 Arm64)
           - os: macos-15
