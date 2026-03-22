@@ -6,7 +6,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from repofix.detection.commands import _node_subpackage_bin_info
 from repofix.detection.stack import StackInfo
@@ -48,6 +48,74 @@ def apply_rule(
     if handler:
         return handler(error, stack, repo_path)
     return None
+
+
+# ── Python package manager (align with detection/commands.py) ─────────────────
+
+_PoetryLayout = "[tool.poetry]"
+
+
+def _python_package_manager_context(repo_path: Path) -> Literal["uv", "poetry", "pdm", "pipenv", "pip"]:
+    """Prefer lockfiles / manifest hints in the same order as command discovery."""
+    if (repo_path / "uv.lock").exists():
+        return "uv"
+    if (repo_path / "poetry.lock").exists():
+        return "poetry"
+    if (repo_path / "pyproject.toml").is_file():
+        try:
+            pp = (repo_path / "pyproject.toml").read_text(encoding="utf-8")
+        except OSError:
+            pp = ""
+        if _PoetryLayout in pp:
+            return "poetry"
+    if (repo_path / "pdm.lock").exists():
+        return "pdm"
+    if (repo_path / "Pipfile").exists() or (repo_path / "Pipfile.lock").exists():
+        return "pipenv"
+    return "pip"
+
+
+def _python_add_package_command(repo_path: Path, pypi_name: str) -> str:
+    ctx = _python_package_manager_context(repo_path)
+    if ctx == "uv":
+        return f"uv add {pypi_name}"
+    if ctx == "poetry":
+        return f"poetry add {pypi_name}"
+    if ctx == "pdm":
+        return f"pdm add {pypi_name}"
+    if ctx == "pipenv":
+        return f"pipenv install {pypi_name}"
+    return f"pip install {pypi_name}"
+
+
+def _uv_sync_command(repo_path: Path) -> str:
+    """Match _from_uv_project optional-deps heuristic in detection/commands.py."""
+    if not (repo_path / "pyproject.toml").is_file():
+        return "uv sync"
+    try:
+        content = (repo_path / "pyproject.toml").read_text(encoding="utf-8")
+    except OSError:
+        return "uv sync"
+    if "[project.optional-dependencies]" in content or "[tool.uv.sources]" in content:
+        return "uv sync --all-extras"
+    return "uv sync"
+
+
+def _python_reinstall_dependencies_command(repo_path: Path) -> str:
+    ctx = _python_package_manager_context(repo_path)
+    if ctx == "uv":
+        return _uv_sync_command(repo_path)
+    if ctx == "poetry":
+        return "poetry install"
+    if ctx == "pdm":
+        return "pdm install"
+    if ctx == "pipenv":
+        return "pipenv install"
+    if (repo_path / "requirements.txt").exists():
+        return "pip install -r requirements.txt --force-reinstall"
+    if (repo_path / "pyproject.toml").exists() or (repo_path / "setup.py").exists() or (repo_path / "setup.cfg").exists():
+        return "pip install -e ."
+    return "pip install -r requirements.txt --force-reinstall"
 
 
 # ── Handlers ──────────────────────────────────────────────────────────────────
@@ -99,9 +167,10 @@ def _fix_missing_dependency(error: ClassifiedError, stack: StackInfo, repo_path:
             "git": "gitpython",
         }
         pypi_name = pkg_map.get(package, package)
+        cmd = _python_add_package_command(repo_path, pypi_name)
         return FixAction(
             description=f"Install missing Python package: {pypi_name}",
-            commands=[f"pip install {pypi_name}"],
+            commands=[cmd],
             next_step="rerun",
             source="rule",
         )
@@ -229,10 +298,10 @@ def _fix_build_failure(error: ClassifiedError, stack: StackInfo, repo_path: Path
             source="rule",
         )
 
-    if runtime == "python":
+    if runtime in ("python", "pip"):
         return FixAction(
             description="Re-install all Python dependencies",
-            commands=["pip install -r requirements.txt --force-reinstall"],
+            commands=[_python_reinstall_dependencies_command(repo_path)],
             next_step="rerun",
             source="rule",
         )
@@ -1026,6 +1095,7 @@ _TOOL_INSTALL_CMDS: dict[str, str] = {
         "command -v corepack >/dev/null 2>&1 && corepack enable && "
         "corepack prepare yarn@stable --activate || npm install -g yarn"
     ),
+    "bun": "command -v npm >/dev/null 2>&1 && npm install -g bun 2>/dev/null || true",
     "go": "sudo apt-get install -y golang-go 2>/dev/null || true",
     "cargo": "sudo apt-get install -y cargo 2>/dev/null || true",
     "rustc": "sudo apt-get install -y rustc 2>/dev/null || true",

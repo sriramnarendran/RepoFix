@@ -433,6 +433,22 @@ def build_suggestions(errors: list[ClassifiedError], stack: StackInfo) -> list[s
         elif error.error_type == "ruby_gem_error":
             gem = error.extracted.get("gem", "")
             suggestions.append(f"Install native deps for {gem or 'gems'}: sudo apt-get install -y build-essential ruby-dev")
+        elif error.error_type == "permission_error":
+            suggestions.append(
+                "Fix file permissions or ownership on the repo (chmod/chown) or run from a writable directory"
+            )
+        elif error.error_type == "missing_config":
+            suggestions.append(
+                "Copy an example config (.env.example → .env) or add the missing config file the app expects"
+            )
+        elif error.error_type == "npm_lifecycle_failure":
+            suggestions.append(
+                "Install the tool referenced in the script (e.g. husky), or use npm install --ignore-scripts if hooks are optional"
+            )
+        elif error.error_type == "go_mod_bad_version":
+            suggestions.append(
+                "Use a valid go directive in go.mod (e.g. go 1.22 not 1.22.0) or install a matching Go toolchain"
+            )
         elif error.error_type == "bind_mount_is_directory":
             cpath = error.extracted.get("container_path", "")
             suggestions.append(

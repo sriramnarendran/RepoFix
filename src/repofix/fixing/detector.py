@@ -29,12 +29,18 @@ _ERROR_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"Cannot find module ['\"]([a-zA-Z@][^'\"]*)['\"]", re.I), "missing_dependency"),
     (re.compile(r"Cannot find package ['\"]([a-zA-Z@][^'\"]*)['\"]", re.I), "missing_dependency"),
     (re.compile(r"Module not found: Error: Can't resolve ['\"](.+?)['\"]", re.I), "missing_dependency"),
+    # esbuild / Vite — bare package vs relative path (relative → wrong entry / path, not registry)
+    (re.compile(r"Could not resolve ['\"]([./][^'\"]*)['\"]", re.I), "wrong_entry_point"),
+    (re.compile(r"Could not resolve ['\"]([a-zA-Z@][^'\"]*)['\"]", re.I), "missing_dependency"),
     (re.compile(r"No module named ['\"]?(.+?)['\"]?$", re.I), "missing_dependency"),
     (re.compile(r"ModuleNotFoundError", re.I), "missing_dependency"),
     (re.compile(r"ImportError: cannot import name", re.I), "missing_dependency"),
     (re.compile(r"Could not find a version that satisfies the requirement (\S+)", re.I), "missing_dependency"),
     (re.compile(r"npm ERR! 404 Not Found.*'(.+?)'", re.I), "missing_dependency"),
     (re.compile(r"error: package `(.+?)` not found", re.I), "missing_dependency"),
+    # Deno — bare specifier vs relative
+    (re.compile(r"error: Module not found ['\"]([./][^'\"]*)['\"]", re.I), "wrong_entry_point"),
+    (re.compile(r"error: Module not found ['\"]([^./][^'\"]*)['\"]", re.I), "missing_dependency"),
 
     # Port conflict
     (re.compile(r"EADDRINUSE", re.I), "port_conflict"),
@@ -56,6 +62,8 @@ _ERROR_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"Compilation failed", re.I), "build_failure"),
     (re.compile(r"error\[E\d+\]:", re.I), "build_failure"),  # Rust
     (re.compile(r"\[ERROR\] BUILD FAILURE", re.I), "build_failure"),  # Maven
+    (re.compile(r"\[vite\].*build error|vite.*\bbuild failed\b|ERROR.*\[@vitejs", re.I), "build_failure"),
+    (re.compile(r"\besbuild\b.*\bfailed\b|Error: Build failed with \d+ errors?", re.I), "build_failure"),
 
     # Version mismatch
     (re.compile(r"engines.*node.*required.*but", re.I), "version_mismatch"),
@@ -177,6 +185,7 @@ _ERROR_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"dial tcp.*connection refused", re.I), "network_error"),  # Go
     (re.compile(r"requests\.exceptions\.(ConnectionError|Timeout)", re.I), "network_error"),  # Python
     (re.compile(r"net::ERR_CONNECTION_REFUSED", re.I), "network_error"),
+    (re.compile(r"httpx\.ConnectError|http\.client\.CannotSendRequest|urllib3.*NewConnectionError", re.I), "network_error"),
 
     # GPU / CUDA — trending Python ML (PyTorch, LangChain tools, NVIDIA Warp) and CUDA extensions
     (
@@ -279,6 +288,16 @@ _ERROR_PATTERNS: list[tuple[re.Pattern, str]] = [
         ),
         "lock_file_conflict",
     ),
+    # pnpm — lockfile drift / stale (CI + local)
+    (
+        re.compile(
+            r"ERR_PNPM_OUTDATED_LOCKFILE|lockfile is not up to date|"
+            r"Run [`']pnpm install[`']? (?:to update|to sync|to regenerate).*lockfile|"
+            r"ignored build scripts.*pnpm approve-builds",
+            re.I,
+        ),
+        "lock_file_conflict",
+    ),
 
     # pip dependency resolver dead-end (PEP 517 / conflicting pins)
     (
@@ -286,6 +305,16 @@ _ERROR_PATTERNS: list[tuple[re.Pattern, str]] = [
             r"ResolutionImpossible|pip.*dependencies do not satisfy|"
             r"these package versions have conflicting dependencies|"
             r"Cannot install .{0,200}conflicting dependencies",
+            re.I,
+        ),
+        "pip_resolution",
+    ),
+    # Poetry / uv resolver prose (single-line hints)
+    (
+        re.compile(
+            r"SolverProblemError|Because no versions of .* match|"
+            r"Poetry could not find a compatible version|version solving failed|"
+            r"No solution found when resolving dependencies",
             re.I,
         ),
         "pip_resolution",
@@ -397,6 +426,18 @@ _ERROR_PATTERNS: list[tuple[re.Pattern, str]] = [
 
     # go.mod: invalid "go" directive (e.g. go 1.22.0 — patch-style rejected; fix file not apt install go)
     (re.compile(r"\.go\.mod:\d+:\s*invalid go version", re.I), "go_mod_bad_version"),
+
+    # Python — native .so load failure at import (needs system package / LD_LIBRARY_PATH)
+    (
+        re.compile(
+            r"ImportError:.*cannot open shared object file|"
+            r"error while loading shared libraries:|"
+            r"OSError:.*could not load.*library|"
+            r"ImportError:.*libffi\.so",
+            re.I,
+        ),
+        "system_dependency",
+    ),
 
     # Language-specific compiler/toolchain not found (must come before generic patterns)
     (re.compile(r"\bGo compiler not found\b", re.I), "missing_tool"),

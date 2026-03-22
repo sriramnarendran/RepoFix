@@ -205,3 +205,40 @@ def test_fix_missing_python312_cli(tmp_path: Path) -> None:
     assert action is not None
     assert any("python3.12" in cmd for cmd in action.commands)
     assert any("uv python install 3.12" in cmd for cmd in action.commands)
+
+
+def test_fix_missing_python_dep_with_uv_lock(tmp_path: Path) -> None:
+    (tmp_path / "uv.lock").write_text("# lock\n")
+    (tmp_path / "pyproject.toml").write_text("[project]\nname = \"x\"\n")
+    error = _make_classified("missing_dependency", {"package": "httpx", "runtime": "python"})
+    action = apply_rule(error, _python_stack(), tmp_path)
+    assert action is not None
+    assert any("uv add httpx" in cmd for cmd in action.commands)
+
+
+def test_fix_missing_python_dep_with_poetry_lock(tmp_path: Path) -> None:
+    (tmp_path / "poetry.lock").write_text("# lock\n")
+    error = _make_classified("missing_dependency", {"package": "httpx", "runtime": "python"})
+    action = apply_rule(error, _python_stack(), tmp_path)
+    assert action is not None
+    assert any("poetry add httpx" in cmd for cmd in action.commands)
+
+
+def test_fix_build_failure_python_with_uv_lock(tmp_path: Path) -> None:
+    (tmp_path / "uv.lock").write_text("# lock\n")
+    err = ClassifiedError(
+        error_type="build_failure",
+        description="build failed",
+        signal=ErrorSignal(raw_line="x", source="stderr", error_type="build_failure"),
+        extracted={},
+    )
+    action = apply_rule(err, _python_stack(), tmp_path)
+    assert action is not None
+    assert any("uv sync" in cmd for cmd in action.commands)
+
+
+def test_fix_missing_bun_cli(tmp_path: Path) -> None:
+    error = _make_classified("missing_tool", {"tool_name": "bun"}, "bun: command not found")
+    action = apply_rule(error, _node_stack(), tmp_path)
+    assert action is not None
+    assert any("npm install -g bun" in cmd for cmd in action.commands)

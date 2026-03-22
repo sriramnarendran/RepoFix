@@ -49,6 +49,8 @@ class ClassifiedError:
 _PORT_RE = re.compile(r":(\d{2,5})")
 _JS_MODULE_RE = re.compile(r"Cannot find module ['\"](.+?)['\"]")
 _WEBPACK_MODULE_RE = re.compile(r"Can't resolve ['\"](.+?)['\"]")
+_ROLLUP_RESOLVE_RE = re.compile(r"Could not resolve ['\"](.+?)['\"]", re.I)
+_DENO_MODULE_RE = re.compile(r"error: Module not found ['\"](.+?)['\"]", re.I)
 _PY_MODULE_RE = re.compile(r"No module named ['\"]?([^\s'\"]+)")
 _PY_MODULE2_RE = re.compile(r"ModuleNotFoundError.*['\"]([^'\"]+)['\"]")
 _ENV_KEY_RE = re.compile(r"KeyError:\s*['\"]([A-Z_][A-Z0-9_]*)['\"]")
@@ -100,6 +102,12 @@ _ENGINES_WANTED_JSON_RE = re.compile(
     re.I,
 )
 _GLIBC_TAG_RE = re.compile(r"GLIBC_(\d+\.\d+(?:\.\d+)?)|GLIBCXX_(\d+\.\d+(?:\.\d+)?)", re.I)
+_SHARED_LIB_LOAD_RE = re.compile(
+    r"cannot open shared object file:\s*([^\s]+)|"
+    r"error while loading shared libraries:\s*([^\s:]+)|"
+    r"(lib[\w\-\.]+\.so(?:\.\d+)?)",
+    re.I,
+)
 
 
 def classify(signal: ErrorSignal, runtime: str = "unknown") -> ClassifiedError:
@@ -176,7 +184,9 @@ def classify(signal: ErrorSignal, runtime: str = "unknown") -> ClassifiedError:
 
     if signal.error_type == "wrong_entry_point":
         # Extract the bad file path so the handler knows what was tried
-        m = re.search(r"Cannot find module ['\"]([^'\"]+)['\"]", line, re.I)
+        m = re.search(r"Cannot find module ['\"]([^'\"]+)['\"]", line, re.I) or re.search(
+            r"error: Module not found ['\"]([^'\"]+)['\"]", line, re.I
+        )
         bad_path = m.group(1) if m else line[:120]
         return ClassifiedError(
             error_type="wrong_entry_point",
@@ -273,7 +283,7 @@ def classify(signal: ErrorSignal, runtime: str = "unknown") -> ClassifiedError:
         )
 
     if signal.error_type == "system_dependency":
-        lib_name = _extract_system_lib(line)
+        lib_name = _extract_system_lib(line) or _extract_shared_lib_from_line(line)
         return ClassifiedError(
             error_type="system_dependency",
             description=f"Missing system library or header: {lib_name or line[:80]}",
@@ -531,7 +541,7 @@ def _extract_go_mod_bad_version(line: str, context: str) -> dict[str, str] | Non
 
 
 def _extract_missing_package(line: str, context: str, runtime: str) -> str | None:
-    for pattern in (_JS_MODULE_RE, _WEBPACK_MODULE_RE, _CANNOT_FIND_PACKAGE_RE):
+    for pattern in (_JS_MODULE_RE, _WEBPACK_MODULE_RE, _ROLLUP_RESOLVE_RE, _DENO_MODULE_RE, _CANNOT_FIND_PACKAGE_RE):
         m = pattern.search(line)
         if m:
             pkg = m.group(1)
@@ -600,6 +610,14 @@ def _extract_system_lib(line: str) -> str | None:
     if m:
         return m.group(1) or m.group(2) or m.group(3)
     return None
+
+
+def _extract_shared_lib_from_line(line: str) -> str | None:
+    """Best-effort .so name from ImportError / loader messages."""
+    m = _SHARED_LIB_LOAD_RE.search(line)
+    if not m:
+        return None
+    return next((g for g in m.groups() if g), None)
 
 
 def _extract_gem_name(line: str, context: str) -> str | None:

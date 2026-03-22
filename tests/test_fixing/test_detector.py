@@ -153,3 +153,38 @@ def test_detects_prisma_p1001() -> None:
 def test_detects_docker_failed_to_solve() -> None:
     logs = _lines(["ERROR: failed to solve: process \"/bin/sh -c npm ci\" did not complete successfully"])
     assert any(s.error_type == "docker_error" for s in detect_errors(logs))
+
+
+def test_detects_pnpm_outdated_lockfile() -> None:
+    logs = _lines(["ERR_PNPM_OUTDATED_LOCKFILE  Run pnpm install to update the lockfile"])
+    assert any(s.error_type == "lock_file_conflict" for s in detect_errors(logs))
+
+
+def test_detects_poetry_solver_problem() -> None:
+    logs = _lines(["SolverProblemError: Because no versions of django match"])
+    assert any(s.error_type == "pip_resolution" for s in detect_errors(logs))
+
+
+def test_detects_esbuild_resolve_missing_dep() -> None:
+    logs = _lines(['✘ [ERROR] Could not resolve "lodash"'])
+    assert any(s.error_type == "missing_dependency" for s in detect_errors(logs))
+
+
+def test_detects_esbuild_resolve_wrong_entry() -> None:
+    logs = _lines(['Could not resolve "./missing-file"'])
+    assert any(s.error_type == "wrong_entry_point" for s in detect_errors(logs))
+
+
+def test_detects_python_shared_lib_import_error() -> None:
+    logs = _lines(["ImportError: libssl.so.3: cannot open shared object file: No such file or directory"])
+    assert any(s.error_type == "system_dependency" for s in detect_errors(logs))
+
+
+def test_detects_deno_module_not_found() -> None:
+    logs = _lines(["""error: Module not found "file:///tmp/foo.ts"."""])
+    assert any(s.error_type == "missing_dependency" for s in detect_errors(logs))
+
+
+def test_detects_vite_build_failure() -> None:
+    logs = _lines(["vite v5.0.0 build failed in 120ms"])
+    assert any(s.error_type == "build_failure" for s in detect_errors(logs))
