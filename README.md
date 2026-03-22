@@ -65,11 +65,10 @@ Default clone and config locations: **`~/.repofix/repos/`**, **`~/.repofix/confi
 Installs the **standalone binary** from **GitHub Releases** into **`~/.local/bin`** (use **`INSTALL_PREFIX`** to change the directory). **No Python** is needed for RepoFix itself.
 
 ```bash
-curl -sSf --proto '=https' --tlsv1.2 \
-  https://raw.githubusercontent.com/sriramnarendran/RepoFix/main/scripts/install_binary.sh | bash
+curl -sSfL https://raw.githubusercontent.com/sriramnarendran/RepoFix/main/scripts/install_binary.sh | bash
 ```
 
-If `~/.local/bin` is not on your **`PATH`**, add it. Then:
+The script installs the executable as **`~/.local/bin/repofix`**. Your shell only runs commands it finds via **`PATH`**—it does not automatically search every folder. Many systems already include `~/.local/bin` in `PATH`; if yours does not, add a line like `export PATH="$HOME/.local/bin:$PATH"` to your shell config (e.g. `~/.bashrc`), open a new terminal, then:
 
 ```bash
 repofix --help
