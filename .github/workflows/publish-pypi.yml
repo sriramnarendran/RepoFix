@@ -1,0 +1,41 @@
+# Publish sdist + wheel to PyPI when a version tag is pushed (same trigger as build-binaries.yml).
+#
+# One-time PyPI setup (trusted publishing — no PYPI_API_TOKEN in GitHub):
+# 1. Create the project on https://pypi.org (or let the first upload create it if allowed).
+# 2. PyPI → Project → Manage project → Publishing → Add a new pending publisher
+#    - Owner: your GitHub user or org
+#    - Repository: RepoFix (or full name as shown)
+#    - Workflow name: publish-pypi.yml
+#    - Environment name: leave blank (unless you add a GitHub Environment below and match it)
+# 3. Push a tag like v0.1.2; this workflow uploads that tree’s pyproject version as the release.
+#
+# If you prefer a token instead: add secret PYPI_API_TOKEN and set password in the publish step
+# per https://github.com/pypa/gh-action-pypi-publish
+name: Publish to PyPI
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # OIDC for PyPI trusted publishing
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tooling
+        run: pip install build
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
