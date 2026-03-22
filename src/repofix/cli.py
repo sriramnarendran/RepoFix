@@ -265,6 +265,78 @@ def run(
         raise typer.Exit(1)
 
 
+# ── repofix completion ────────────────────────────────────────────────────────
+
+completion_app = typer.Typer(
+    help="Shell tab completion for subcommands and options (bash, zsh, fish, PowerShell).",
+    no_args_is_help=True,
+)
+app.add_typer(completion_app, name="completion")
+
+_COMPLETION_SHELLS = frozenset({"bash", "zsh", "fish", "powershell", "pwsh"})
+
+
+def _completion_install_impl(shell: str | None) -> None:
+    from typer._completion_shared import install as typer_install_completion
+
+    shell_name, path = typer_install_completion(
+        shell=shell,
+        prog_name="repofix",
+        complete_var="_REPOFIX_COMPLETE",
+    )
+    display.success(f"{shell_name} completion installed → {path}")
+    display.info("Open a new terminal tab/window (or reload your shell config) for completion to take effect.")
+
+
+def _completion_show_impl(shell: str | None) -> None:
+    from typer._completion_shared import _get_shell_name, get_completion_script
+
+    resolved: str
+    if shell:
+        resolved = shell.lower().strip()
+    else:
+        resolved = _get_shell_name() or "bash"
+    if resolved not in _COMPLETION_SHELLS:
+        display.error(f"Unsupported shell {resolved!r}. Use: {', '.join(sorted(_COMPLETION_SHELLS))}")
+        raise typer.Exit(1)
+    script = get_completion_script(
+        prog_name="repofix",
+        complete_var="_REPOFIX_COMPLETE",
+        shell=resolved,
+    )
+    print(script)
+
+
+@completion_app.command("install")
+def completion_install(
+    shell: Annotated[
+        Optional[str],
+        typer.Argument(help="bash | zsh | fish | powershell | pwsh — default: detect from your terminal"),
+    ] = None,
+) -> None:
+    """Install tab completion (same as `repofix --install-completion`, easier to discover)."""
+    s = shell.lower().strip() if shell else None
+    if s and s not in _COMPLETION_SHELLS:
+        display.error(f"Unsupported shell {shell!r}. Choose one of: {', '.join(sorted(_COMPLETION_SHELLS))}")
+        raise typer.Exit(1)
+    _completion_install_impl(s)
+
+
+@completion_app.command("show")
+def completion_show(
+    shell: Annotated[
+        Optional[str],
+        typer.Argument(help="bash | zsh | fish | powershell | pwsh — default: detect"),
+    ] = None,
+) -> None:
+    """Print the completion script to stdout (for manual install or customization)."""
+    s = shell.lower().strip() if shell else None
+    if s and s not in _COMPLETION_SHELLS:
+        display.error(f"Unsupported shell {shell!r}. Choose one of: {', '.join(sorted(_COMPLETION_SHELLS))}")
+        raise typer.Exit(1)
+    _completion_show_impl(s)
+
+
 # ── repofix config ────────────────────────────────────────────────────────
 
 config_app = typer.Typer(help="Manage repofix configuration.", no_args_is_help=True)
@@ -924,6 +996,9 @@ def clear_memory(
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:
+    from repofix.shell_completion_auto import maybe_install_shell_completion
+
+    maybe_install_shell_completion()
     app()
 
 
