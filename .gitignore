@@ -1,8 +1,8 @@
 # Virtual environments
 .venv/
 .venv-binary-build/
-venv/
-env/
+/venv/
+/env/
 .env/
 .python-version
 
