@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # Install the RepoFix standalone binary from GitHub Releases (no Python required for RepoFix).
 #
-#   curl -sSf --proto '=https' --tlsv1.2 \
-#     https://raw.githubusercontent.com/sriramnarendran/RepoFix/main/scripts/install_binary.sh | bash
+#   curl -sSfL https://raw.githubusercontent.com/sriramnarendran/RepoFix/main/scripts/install_binary.sh | bash
 #
 # Requires a GitHub Release with attached assets (from CI). Pin a version:
 #
-#   REPOFIX_VERSION=0.1.0 curl -sSf ... | bash
+#   REPOFIX_VERSION=0.1.0 curl -sSfL ... | bash
 #
 # Environment:
-#   REPOFIX_VERSION   e.g. 0.1.0 or v0.1.0 — use that release; omit for latest.
+#   REPOFIX_VERSION      e.g. 0.1.0 or v0.1.0 — use that release; omit for latest.
 #   REPOFIX_GITHUB_REPO  default sriramnarendran/RepoFix
-#   INSTALL_PREFIX      default $HOME/.local/bin
+#   INSTALL_PREFIX       override install directory (default: /usr/local/bin on Linux/macOS,
+#                        %LOCALAPPDATA%\Programs\repofix-style path on Windows Git Bash)
 
 set -euo pipefail
 
@@ -56,6 +56,31 @@ pick_asset() {
   fi
 }
 
+ensure_dir() {
+  local d="$1"
+  [[ -d "$d" ]] && return 0
+  if mkdir -p "$d" 2>/dev/null; then return 0; fi
+  if command -v sudo >/dev/null 2>&1; then
+    echo "install_binary: creating ${d} (sudo)"
+    sudo mkdir -p "$d"
+  else
+    echo "install_binary: cannot create ${d}; set INSTALL_PREFIX e.g. INSTALL_PREFIX=\${HOME}/.local/bin" >&2
+    exit 1
+  fi
+}
+
+install_file() {
+  local tmp="$1" dest="$2"
+  if mv "$tmp" "$dest" 2>/dev/null; then return 0; fi
+  if command -v sudo >/dev/null 2>&1; then
+    echo "install_binary: installing to ${dest} (sudo)"
+    sudo mv "$tmp" "$dest"
+  else
+    echo "install_binary: cannot write ${dest}; try: sudo bash or INSTALL_PREFIX=\${HOME}/.local/bin" >&2
+    exit 1
+  fi
+}
+
 os=$(detect_os)
 arch=$(detect_arch)
 asset=$(pick_asset "$os" "$arch")
@@ -67,8 +92,15 @@ else
   url="${BASE}/releases/latest/download/${asset}"
 fi
 
-DEST_DIR="${INSTALL_PREFIX:-${HOME}/.local/bin}"
-mkdir -p "${DEST_DIR}"
+if [[ -n "${INSTALL_PREFIX:-}" ]]; then
+  DEST_DIR="${INSTALL_PREFIX}"
+elif [[ "$os" == "windows" ]]; then
+  DEST_DIR="${HOME}/AppData/Local/Programs/repofix"
+else
+  DEST_DIR="/usr/local/bin"
+fi
+
+ensure_dir "${DEST_DIR}"
 
 if [[ "$os" == "windows" ]]; then
   DEST="${DEST_DIR}/repofix.exe"
@@ -81,15 +113,16 @@ trap 'rm -f "${TMP}"' EXIT
 
 echo "install_binary: ${url}"
 curl -sSfL --proto '=https' --tlsv1.2 "${url}" -o "${TMP}"
-mv "${TMP}" "${DEST}"
+install_file "${TMP}" "${DEST}"
 trap - EXIT
 if [[ "$os" != "windows" ]]; then
-  chmod +x "${DEST}"
+  chmod +x "${DEST}" 2>/dev/null || sudo chmod +x "${DEST}"
 fi
 
 echo "install_binary: installed to ${DEST}"
 if [[ ":${PATH}:" != *":${DEST_DIR}:"* ]]; then
-  echo "install_binary: add ${DEST_DIR} to your PATH (e.g. export PATH=\"\$HOME/.local/bin:\$PATH\") before using repofix."
+  echo "install_binary: ${DEST_DIR} is not on your PATH. Add it, e.g.:"
+  echo "  export PATH=\"${DEST_DIR}:\$PATH\""
 fi
 
 echo ""

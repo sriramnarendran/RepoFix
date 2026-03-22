@@ -62,16 +62,11 @@ Default clone and config locations: **`~/.repofix/repos/`**, **`~/.repofix/confi
 
 ### 1. One-line install (recommended)
 
-Installs the **standalone binary** from **GitHub Releases** into **`~/.local/bin`** (use **`INSTALL_PREFIX`** to change the directory). **No Python** is needed for RepoFix itself.
+Installs the **standalone binary** from **GitHub Releases**. **No Python** is needed for RepoFix itself.
+
 
 ```bash
 curl -sSfL https://raw.githubusercontent.com/sriramnarendran/RepoFix/main/scripts/install_binary.sh | bash
-```
-
-The script installs the executable as **`~/.local/bin/repofix`**. Your shell only runs commands it finds via **`PATH`**—it does not automatically search every folder. Many systems already include `~/.local/bin` in `PATH`; if yours does not, add a line like `export PATH="$HOME/.local/bin:$PATH"` to your shell config (e.g. `~/.bashrc`), open a new terminal, then:
-
-```bash
-repofix --help
 ```
 
 ---
@@ -114,7 +109,7 @@ Download from [Releases](https://github.com/sriramnarendran/RepoFix/releases) or
 
 - **`pip install --user`:** add Python’s user script directory to your PATH (often `~/.local/bin` on Linux/macOS).
 - **Virtualenv:** activate the venv before running `repofix`.
-- **Binary:** ensure `~/.local/bin` (or **`INSTALL_PREFIX`**) is on **`PATH`**.
+- **Binary:** ensure **`/usr/local/bin`** (or your **`INSTALL_PREFIX`**) is on **`PATH`**.
 
 ---
 
