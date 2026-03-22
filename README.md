@@ -11,7 +11,7 @@
 
 [Installation](#installation) · [Quick start](#quick-start) · [Examples](#examples) · [Bring your own LLM](#bring-your-own-llm) · [CLI reference](#cli-reference) · [Contributing](#contributing) · [llms.txt](https://raw.githubusercontent.com/sriramnarendran/RepoFix/main/llms.txt) (LLM / discovery summary)
 
-![hippo](https://j6jknwosaawfkifc.public.blob.vercel-storage.com/repofix.gif)
+![hippo](https://j6jknwosaawfkifc.public.blob.vercel-storage.com/repofix3.gif)
 </div>
 
 ---
