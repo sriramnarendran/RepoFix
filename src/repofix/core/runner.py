@@ -33,7 +33,10 @@ from repofix.fixing.retry import (
     update_force_ai_after_ai_fix_commands,
 )
 from repofix.core import process_registry as registry
-from repofix.core.install_fallback import suggest_node_install_after_make_shell_bug
+from repofix.core.make_shellflags_fix import (
+    fix_shellflags_trailing_c_in_repo,
+    is_make_command,
+)
 from repofix.core.process_registry import ProcessEntry, make_log_path
 from repofix.memory import store as memory
 from repofix.output import display
@@ -272,6 +275,16 @@ def run(repo_path: Path, source: str, options: RunOptions) -> RunResult:
             env["PORT"] = str(actual_port)
             env["HOST_PORT"] = str(actual_port)
 
+    if any(
+        is_make_command(c) for c in (commands.install, commands.build, commands.run)
+    ):
+        n = fix_shellflags_trailing_c_in_repo(repo_path)
+        if n:
+            display.info(
+                f"Adjusted [bold].SHELLFLAGS[/bold] in {n} file(s): removed trailing "
+                "[bold]-c[/bold] (GNU Make already passes [bold]-c[/bold] to the shell)."
+            )
+
     # ── 6-8. Install → Build → Run with fix-retry loop ────────────────────────
     retry_state = RetryState(max_retries=options.max_retries)
     fix_count = 0
@@ -293,21 +306,6 @@ def run(repo_path: Path, source: str, options: RunOptions) -> RunResult:
                 display.step(f"Installing dependencies: [bold]{commands.install}[/bold]")
                 with display.live_step(commands.install):
                     install_result = _run_step(commands.install, repo_path, env, debug)
-                if not install_result.succeeded:
-                    alt_install = suggest_node_install_after_make_shell_bug(
-                        repo_path, commands.install, install_result.full_output
-                    )
-                    if alt_install:
-                        display.warning(
-                            "Make failed: GNU Make passes [bold]-c[/bold] to the shell, but this "
-                            "repo's Makefile also ends [bold].SHELLFLAGS[/bold] with [bold]-c[/bold], "
-                            "so the shell runs an empty script. "
-                            f"Retrying with [bold]{alt_install}[/bold]…"
-                        )
-                        with display.live_step(alt_install):
-                            install_result = _run_step(alt_install, repo_path, env, debug)
-                        if install_result.succeeded:
-                            commands.install = alt_install
                 if not install_result.succeeded:
                     if options.no_fix:
                         break
@@ -1650,23 +1648,19 @@ def _last_resort_pipeline(
     """
     from repofix.core.executor import run_long_lived
 
+    if any(
+        is_make_command(c) for c in (commands.install, commands.build, commands.run)
+    ):
+        n = fix_shellflags_trailing_c_in_repo(repo_path)
+        if n:
+            display.info(
+                f"Adjusted [bold].SHELLFLAGS[/bold] in {n} file(s): removed trailing [bold]-c[/bold]."
+            )
+
     # Install
     if commands.install:
         with display.live_step(commands.install):
             lr_install = _run_step(commands.install, repo_path, env, debug)
-        if not lr_install.succeeded:
-            alt_install = suggest_node_install_after_make_shell_bug(
-                repo_path, commands.install, lr_install.full_output
-            )
-            if alt_install:
-                display.warning(
-                    "Make failed: duplicate [bold]-c[/bold] in Makefile shell flags. "
-                    f"Retrying with [bold]{alt_install}[/bold]…"
-                )
-                with display.live_step(alt_install):
-                    lr_install = _run_step(alt_install, repo_path, env, debug)
-                if lr_install.succeeded:
-                    commands.install = alt_install
         if not lr_install.succeeded:
             return None
 
