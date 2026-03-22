@@ -4,6 +4,11 @@ name: Build standalone binaries
 
 on:
   workflow_dispatch:
+    inputs:
+      upload_to_tag:
+        description: "Attach binaries to this Git tag (e.g. v0.1.0). Leave empty to only build CI artifacts (no GitHub Release upload)."
+        required: false
+        type: string
   push:
     tags:
       - "v*"
@@ -93,7 +98,11 @@ jobs:
 
   release:
     needs: binary
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: |
+      needs.binary.result == 'success' && (
+        startsWith(github.ref, 'refs/tags/v') ||
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.upload_to_tag != '')
+      )
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -110,8 +119,18 @@ jobs:
           mkdir -p release-assets
           find artifacts -type f \( -name 'repofix-*' -o -name 'repofix-*.exe' \) -print0 \
             | xargs -0 -r -I{} cp -v {} release-assets/
-          test "$(find release-assets -type f | wc -l)" -ge 1
+          n="$(find release-assets -type f | wc -l)"
+          test "${n}" -ge 1
           ls -la release-assets/
+
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${{ github.event.inputs.upload_to_tag }}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Publish GitHub Release
         env:
@@ -119,11 +138,17 @@ jobs:
         run: |
           set -euo pipefail
           REPO="${{ github.repository }}"
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${{ steps.tag.outputs.name }}"
+          echo "Publishing assets for tag: ${TAG}"
+          mapfile -t FILES < <(find release-assets -type f | sort)
+          if [[ ${#FILES[@]} -lt 1 ]]; then
+            echo "No files to upload" >&2
+            exit 1
+          fi
           if gh release view "${TAG}" --repo "${REPO}" &>/dev/null; then
-            gh release upload "${TAG}" release-assets/* --clobber --repo "${REPO}"
+            gh release upload "${TAG}" "${FILES[@]}" --clobber --repo "${REPO}"
           else
-            gh release create "${TAG}" release-assets/* \
+            gh release create "${TAG}" "${FILES[@]}" \
               --repo "${REPO}" \
               --title "${TAG}" \
               --generate-notes
