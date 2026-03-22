@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Generator
 
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.progress import (
     BarColumn,
@@ -391,7 +392,8 @@ def runs_table(rows: list[dict]) -> None:
 def log_line(line: str, source: str = "stdout") -> None:
     """Print a single log line streamed from the running process."""
     prefix = "[dim cyan]│[/dim cyan]" if source == "stdout" else "[dim red]│[/dim red]"
-    console.print(f"{prefix} {line}", highlight=False)
+    # escape() so paths like [/tmp/lint] are not parsed as Rich markup tags
+    console.print(f"{prefix} {escape(line)}", highlight=False)
 
 
 def log_line_labeled(line: str, label: str, color: str = "cyan", source: str = "stdout") -> None:
@@ -399,7 +401,7 @@ def log_line_labeled(line: str, label: str, color: str = "cyan", source: str = "
     bar_color = color if source == "stdout" else "red"
     label_fmt = f"[bold {color}]{label:<12}[/bold {color}]"
     bar = f"[dim {bar_color}]│[/dim {bar_color}]"
-    console.print(f"{label_fmt} {bar} {line}", highlight=False)
+    console.print(f"{label_fmt} {bar} {escape(line)}", highlight=False)
 
 
 def multi_service_panel(services: list[dict]) -> None:
