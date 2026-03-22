@@ -89,5 +89,14 @@ fi
 
 echo "install_binary: installed to ${DEST}"
 if [[ ":${PATH}:" != *":${DEST_DIR}:"* ]]; then
-  echo "install_binary: add ${DEST_DIR} to your PATH, then run: repofix --help"
+  echo "install_binary: add ${DEST_DIR} to your PATH (e.g. export PATH=\"\$HOME/.local/bin:\$PATH\") before using repofix."
 fi
+
+echo ""
+echo "───────────────────────────────────────────────────────────────"
+echo "  Next: run RepoFix on a GitHub repo (replace with any URL):"
+echo ""
+echo "    repofix run https://github.com/user/repo"
+echo ""
+echo "  Or try:  repofix --help"
+echo "───────────────────────────────────────────────────────────────"
